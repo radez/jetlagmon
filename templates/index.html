@@ -1,0 +1,477 @@
+<html>
+  <head>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+      var snotags = {1: 'snoaccept', 2:'snojoin', 3:'snoavail'};
+      var totals = {'vms': 0, 'vmsshtdwn': 0, 'vmsinavg': 0, 'hvsping':0,
+                    'snoaccept': 0, 'snojoin': 0, 'snoavail':0};
+      var vm2hv = {};
+      var hvs = [];
+      var running_timeout = null;
+      function getRandomInt(max) {
+          return Math.floor(Math.random() * max);
+      }
+      function get_all_hv_prop(e, prop) {
+        hvs.forEach(function myFunction(item, index, arr) {
+          //get_hv_prop(e, item, prop);
+          setTimeout(function() {
+            get_hv_prop(event, item, prop); }, getRandomInt(3000)
+          );
+        });
+      }
+      function get_hv_prop(e, hv, prop) {
+        let url = '/hv/';
+        let data = {hv: hv, prop: prop};
+        $.ajax({
+          type: "POST",
+          url: url,
+          data: data,
+          success: function(data) {
+            if (prop.includes('nvme')) {
+              $('#' + hv + prop).html(data['res']);
+            } else {
+              let val = parseInt($('#' + hv + prop).html());
+              if ( val ) { totals[prop] -= val; }
+              let res = parseInt(data['res']);
+              $('#' + hv + prop).html(res);
+              totals[prop] += res;
+              $('#' + prop  + 'total').html(totals[prop]);
+            }
+          },
+          error: function(data) {
+            $('#' + hv + prop).html(data.responseText);
+          }
+        });
+      }
+      function clearsnocount() {
+        $("div[id^='sno']").html('-');
+        totals['snoaccept'] = 0;
+        totals['snojoin'] = 0;
+        totals['snoavail'] =0;
+      }
+      function do_sno_addup(host, index, val) {
+        if (host == 'local-cluster') {return;}
+        if (index in snotags) {
+          h = $('#' + snotags[index] + vm2hv[host]);
+          addval = Number(val.includes('rue'));
+          totals[snotags[index]] += addval;
+          $('#' + snotags[index] + 'total').html(totals[snotags[index]]);
+          if (h.html() == '-') {
+            h.html(addval); }
+          else {
+            acc = parseInt($('#' + snotags[1] + vm2hv[host]).html());
+            addval = parseInt(h.html()) + addval;
+            if (acc > addval) { h.addClass('bg-danger text-white'); }
+            else { h.removeClass('bg-danger text-white'); }
+            h.html(addval);
+          }
+        }
+      }
+      function process_data(data) {
+        tgt = data['tgt'];
+        if (tgt == 'managedcluster') {
+          var hrow = $('<div class="row small"></div>');
+          data['headers'].forEach(function(hCol, index, arr) {
+            //if (index >= 2 && index <= 5) { return; }
+            var hcol = $('<div class="col"></div>');
+            hcol.html(hCol);
+            hrow.append(hcol);
+          });
+          $('[id^=vmlheaders]').each(function(index, hDiv ) {
+            $(this).html(hrow.clone());
+          });
+        } else { e = $('#' + tgt).html(''); }
+        data['rows'].forEach(function(dataRow, index, arr) {
+          if (tgt == 'managedcluster') { e = $('#' + dataRow[0]).html(''); };
+          var row = $('<div class="row small"></div>');
+          dataRow.forEach(function(dataCol, index, arr) {
+            if (tgt == 'managedcluster') { 
+              do_sno_addup(dataRow[0], index, dataCol);
+            }
+            if (data['status'] && index+1 == data['headers'].length) {
+              if (! dataCol in ['STATUS', 'MESSAGE']) {
+                e.append(row); 
+                var _row = $('<div class="row small"></div>');
+                var col = $('<div class="col"></div>');
+                col.html(dataCol);
+                _row.append(col);
+                row = _row;
+              }
+            } else {
+              var col = $('<div></div>');
+              if (index == 0 && tgt != 'managedcluster') { col.addClass('col-4'); }
+              else { col.addClass('col'); }
+              col.html(dataCol);
+              row.append(col);
+            }
+          });
+          e.append(row); 
+        });
+      }
+      function get_validations(e) {
+        let url = '/validations/';
+        $.ajax({
+          type: "GET",
+          url: url,
+          success: function(data) {
+            $('#validations').html(data);
+          },
+          error: function(data) {
+            $('#validations').html(data.responseText);
+          }
+        });
+      }
+      function get_oc(e, tgt) {
+        let url = '/oc/';
+        let data = {tgt: tgt};
+        $.ajax({
+          type: "POST",
+          url: url,
+          data: data,
+          success: process_data,
+          error: function(data) {
+            $('#' + tgt).html(data.responseText);
+          }
+        });
+      }
+      function get_lcl(e, cmd) {
+        let url = '/lcl/';
+        let data = {cmd: cmd};
+        $.ajax({
+          type: "POST",
+          url: url,
+          data: data,
+          success: function(data) {
+            tgt = data['tgt'];$
+            if (tgt == 'runningtest') {
+              process_data(data);
+            } else {
+              $('#' + cmd).html(data['res']);
+            }
+          },
+          error: function(data) {
+            $('#' + hv + prop).html(data.responseText);
+          }
+        });
+      }
+      function get_reg_tags(e, repository, clear=true) {
+        let url = '/registry/';
+        let data = {repository: repository};
+        $.ajax({
+          type: "POST",
+          url: url,
+          data: data,
+          success: function(data) {
+            if (repository == '_catalog') {
+                $('#_catalogtags').html(data);
+            } else if (repository.startsWith('_catalog')) {
+                $('#repositories').html(data);
+                if (clear) {$('#repositorytags').html('');}
+            } else {
+                $('#repositorytags').html(data);
+            }
+          },
+          error: function(data) {
+            $('#' + repository + 'tags').html(data.responseText);
+          }
+        });
+
+      }
+      function monitor_data() {
+        get_lcl(event, 'runningtest');
+        if (running_timeout) {
+          clearTimeout(running_timeout);
+          running_timeout = null;
+        }
+        running_timeout = setTimeout ( monitor_data, 180000); // 3 minuites
+      }
+    </script>
+    <script id="docready">
+      $( document ).ready(function() {
+        get_oc(event, 'managedcluster');
+        get_all_hv_prop(event, 'vms');
+        get_all_hv_prop(event, 'vmsshtdwn');
+        get_all_hv_prop(event, 'vmsinavg');
+        get_all_hv_prop(event, 'hvsping');
+        get_all_hv_prop(event, 'hvsnvme');
+        $('#docready').remove();
+      });
+    </script>
+    <style>
+      a {
+        text-decoration: none;
+        cursor: pointer;
+      }
+      /*https://www.w3schools.com/css/tryit.asp?filename=trycss_tooltip_bottom*/
+      .val {
+        position: relative;
+        display: inline-block;
+        border-bottom: 1px dotted black;
+      }
+      
+      .val .valtext {
+        visibility: hidden;
+        width: 500px;
+        background-color: lightgrey;
+        color: #000;
+        text-align: center;
+        border-radius: 6px;
+        padding: 5px 0;
+        position: absolute;
+        z-index: 1;
+        top: 150%;
+        left: 50%;
+        margin-left: -60px;
+      }
+      
+      .val:hover .valtext {
+        visibility: visible;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="m-3">
+      <span>kubeadmin password: </span>
+      <span id="kubepass">-</span>
+      <span><a class="h5" onclick="get_lcl(event, 'kubepass');">&#10227;</a></span>
+    <div>&nbsp;</div>
+    <div class="row">
+      <div class="col">
+        <div class="row">
+          <div>
+            <b data-bs-toggle="collapse" data-bs-target="#validations" aria-expanded="true" aria-controls="validations">Validations</b>
+            <a class="h5" onclick="get_validations(event);">&#10227;</a>
+	  </div>
+        </div>
+        <div id="validations" class="collapse show">-</div>
+        <div>&nbsp;</div>
+        <div class="row">
+          <ul class="nav nav-tabs" id="acmTabs" role="tablist">
+            <li class="nav-item small" role="presentation">
+              <button class="nav-link active" id="hub-tab" data-bs-toggle="tab" data-bs-target="#hubtab" type="button" role="tab" aria-controls="hubtab" aria-selected="true">Hub</button>
+            </li>
+            <li class="nav-item small" role="presentation">
+              <button class="nav-link" id="registry-tab" data-bs-toggle="tab" data-bs-target="#registrytab" type="button" role="tab" aria-controls="registrytab" aria-selected="false">Registry</button>
+            </li>
+            <li class="nav-item small" role="presentation">
+              <button class="nav-link" id="runningtest-tab" data-bs-toggle="tab" data-bs-target="#runningtesttab" type="button" role="tab" aria-controls="runningtesttab" aria-selected="false">Running Test</button>
+            </li>
+          </ul>
+          <div class="tab-content" id="acmTabContent">
+            <div class="tab-pane fade show active" id="hubtab" role="tabpanel" aria-labelledby="hub-tab">
+
+              <div>&nbsp;</div>
+              <div class="row">
+                <div>
+                  <b data-bs-toggle="collapse" data-bs-target="#clusterversion" aria-expanded="true" aria-controls="clusterversion">oc get clusterversion</b>
+                  <a class="h5" onclick="get_oc(event, 'clusterversion');">&#10227;</a>
+	        </div>
+              </div>
+              <div id="clusterversion" class="collapse show">-</div>
+              <div>&nbsp;</div>
+              <div class="row">
+                <div>
+                  <b data-bs-toggle="collapse" data-bs-target="#nodes" aria-expanded="true" aria-controls="nodes">oc get nodes</b>
+                  <a class="h5" onclick="get_oc(event, 'nodes');">&#10227;</a>
+	        </div>
+              </div>
+              <div id="nodes" class="collapse show">-</div>
+              <div>&nbsp;</div>
+              <div class="row">
+                <div>
+                  <b data-bs-toggle="collapse" data-bs-target="#clusteroperators" aria-expanded="true" aria-controls="clusteroperators">oc get clusteroperators</b>
+                  <a class="h5" onclick="get_oc(event, 'clusteroperators');">&#10227;</a>
+                </div>
+              </div>
+              <div id="clusteroperators" class="collapse show">-</div>
+
+            </div>
+            <div class="tab-pane fade" id="registrytab" role="tabpanel" aria-labelledby="registry-tab">
+                  <div>&nbsp;</div>
+                  <div class="row">
+                    <div class="small"> Quick links: </div>
+                  </div>
+              <div class="row">
+                <div class="col">
+
+                  <div class="row">
+                    <div>
+                      <a class="small" onclick="get_reg_tags(event, '_catalog/ocp4', false);get_reg_tags(event, 'ocp4/openshift4');">ocp4/openshift4</a><br>
+                      <a class="small" onclick="get_reg_tags(event, '_catalog/acm-d', false);get_reg_tags(event, 'acm-d/acm-custom-registry');">acm-d/acm-custom-registry</a>
+                    </div>
+                  </div>
+
+                </div>
+                <div class="col">
+
+                  <div class="row">
+                    <div>
+                      <a class="small" onclick="get_reg_tags(event, '_catalog/olm-mirror', false);get_reg_tags(event, 'olm-mirror/redhat-operator-index');">olm-mirror/redhat-operator-index</a><br>
+                      <a class="small" onclick="get_reg_tags(event, '_catalog/openshift-kni', false);get_reg_tags(event, 'openshift-kni/ztp-site-generator');">openshift-kni/ztp-site-generator</a>
+                    </div>
+                  </div>
+
+                </div>
+                <div class="col">
+
+                  <div class="row">
+                    <div>&nbsp;</div>
+                  </div>
+
+                </div>
+              </div>
+              <div class="row">
+                <div class="col-3">
+
+                  <div>&nbsp;</div>
+                  <div class="row">
+                    <div>
+                      <b data-bs-toggle="collapse" data-bs-target="#_catalogtags" aria-expanded="true" aria-controls="_catalogtags">catalog</b>
+                      <a class="h5" onclick="get_reg_tags(event, '_catalog');">&#10227;</a>
+                    </div>
+                  </div>
+                  <div id="_catalogtags" class="collapse show">-</div>
+                  
+                </div>
+                <div class="col-5">
+
+                  <div>&nbsp;</div>
+                  <div class="row">
+                    <div>
+                      <b data-bs-toggle="collapse" data-bs-target="#repositories" aria-expanded="true" aria-controls="repositories">repositories</b>
+                    </div>
+                  </div>
+                  <div id="repositories" class="collapse show">-</div>
+
+                </div>
+                <div class="col-4">
+
+                  <div>&nbsp;</div>
+                  <div class="row">
+                    <div>
+                      <b data-bs-toggle="collapse" data-bs-target="#repositorytags" aria-expanded="true" aria-controls="repositorytags">repository tags</b>
+                    </div>
+                  </div>
+                  <div id="repositorytags" class="collapse show">-</div>
+
+                </div>
+              </div>
+            </div>
+            <div class="tab-pane fade" id="runningtesttab" role="tabpanel" aria-labelledby="runningtest-tab">
+
+              <div>&nbsp;</div>
+              <div class="row">
+                <div>
+                  <b data-bs-toggle="collapse" data-bs-target="#clusterimageset" aria-expanded="true" aria-controls="clusteimageset">oc get clusterimageset</b>
+                  <a class="h5" onclick="get_oc(event, 'clusterimageset');">&#10227;</a>
+                </div>
+              </div>
+              <div id="clusterimageset" class="collapse show">-</div>
+              <div>&nbsp;</div>
+              <div class="row">
+                <div>
+                  <b data-bs-toggle="collapse" data-bs-target="#runningtest" aria-expanded="true" aria-controls="runningtest">runnning test</b>
+                  <a class="h5" onclick="monitor_data();">&#10227;</a>
+                </div>
+              </div>
+              <div id="runningtest" class="collapse show">-</div>
+
+            </div>
+          </div>
+        </div>
+
+
+
+        <script id="loadoc">
+          get_lcl(event, 'kubepass');
+          get_validations(event);
+          get_oc(event, 'clusterversion');
+          get_oc(event, 'nodes');
+          get_oc(event, 'clusteroperators');
+          get_oc(event, 'clusterimageset');
+          get_lcl(event, 'manifests');
+          get_reg_tags(event, '_catalog');
+          $('#loadoc').remove();
+        </script>
+      </div>
+      <div class="col">
+        <div class="row small">
+          <div class="col-2">
+            {{ hosts|length }} Hypervisors<br>
+            <span id='manifests'>-</span> Manifests
+              <a class="h5" onclick="get_lcl(event, 'manifests');">&#10227;</a></div>
+          <div class="col text-center">
+            <div class="small" onclick="get_all_hv_prop(event, 'vms');">VMs<br>&nbsp; Total &#10227;</div>
+            <div id="vmstotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small" onclick="get_all_hv_prop(event, 'vmsshtdwn');">VMs<br>&nbsp; shtdwn &#10227;</div>
+            <div id="vmsshtdwntotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small" onclick="get_all_hv_prop(event, 'vmsinavg');">inbnd<br>&nbsp; avg &#10227;</div>
+            <div id="vmsinavgtotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small" onclick="get_all_hv_prop(event, 'hvsping');">ping<br>&nbsp; 50ms &#10227;</div>
+            <div id="hvspingtotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small" onclick="get_all_hv_prop(event, 'hvsnvme');">nvme<br>&nbsp; size &#10227;</div>
+            <div id="hvsnvmetotal">&nbsp;</div>
+          </div>
+          <div class="col text-center">
+            <div class="small">
+              <a onclick="clearsnocount();get_oc(event, 'managedcluster');">SNOs<br>&nbsp; accept &#10227;</a></div>
+            <div id="snoaccepttotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small">SNOs<br>joined</div>
+            <div id="snojointotal">-</div>
+          </div>
+          <div class="col text-center">
+            <div class="small">SNOs<br>avail</div>
+            <div id="snoavailtotal">-</div>
+          </div>
+        </div>
+        {% for hostname in hosts %}
+        <div class="row">
+		<div class="col-2 small"><a data-bs-toggle="collapse" href="#vmlist{{ hostname }}" role="button" aria-expanded="false" aria-controls="vmlist{{ hostname }}">{{ hostname }}</a></div>
+          <div id="{{ hostname }}vms" class="col text-center small" onclick="get_hv_prop(event, '{{ hostname }}', 'vms')">-</div>
+          <div id="{{ hostname }}vmsshtdwn" class="col text-center small" onclick="get_hv_prop(event, '{{ hostname }}', 'vmsshtdwn')">-</div>
+          <div id="{{ hostname }}vmsinavg" class="col text-center small" onclick="get_hv_prop(event, '{{ hostname }}', 'vmsinavg')">-</div>
+          <div id="{{ hostname }}hvsping" class="col text-center small" onclick="get_hv_prop(event, '{{ hostname }}', 'hvsping')">-</div>
+          <div id="{{ hostname }}hvsnvme" class="col text-center small" onclick="get_hv_prop(event, '{{ hostname }}', 'hvsnvme')">-</div>
+          <div id="snoaccept{{ hostname }}" class="col text-center small">-</div>
+          <div id="snojoin{{ hostname }}" class="col text-center small">-</div>
+          <div id="snoavail{{ hostname }}" class="col text-center small">-</div>
+        </div>
+        <div id="vmlist{{ hostname }}" class="ms-5 collapse">
+          <div id="vmlheaders{{ hostname }}" class="row small"><div class="small">NAME</div></div>
+        {% for vm in vms[hostname] %}
+          <div id="{{ vm }}" class="row small"><div class="small">{{ vm }}</div></div>
+        {% endfor %}
+        </div>
+        <script id="{{ hostname }}loadvm">
+          hvs.push('{{ hostname }}');
+          {% for vm in vms[hostname] %}
+          vm2hv['{{ vm }}'] = '{{ hostname }}';
+          {% endfor %}
+          //setTimeout(function() { get_hv_prop(event, '{{ hostname }}', 'vms'); }, getRandomInt(3000));
+          //setTimeout(function() { get_hv_prop(event, '{{ hostname }}', 'vmsshtdwn'); }, getRandomInt(3000));
+          //setTimeout(function() { get_hv_prop(event, '{{ hostname }}', 'vmsinavg'); }, getRandomInt(3000));
+          //setTimeout(function() { get_hv_prop(event, '{{ hostname }}', 'hvsping'); }, getRandomInt(3000));
+          //get_hv_prop(event, '{{ hostname }}', 'vms');
+          //get_hv_prop(event, '{{ hostname }}', 'vmsshtdwn');
+          //get_hv_prop(event, '{{ hostname }}', 'vmsinavg');
+          //get_hv_prop(event, '{{ hostname }}', 'hvsping');
+          $('#{{ hostname }}loadvm').remove();
+        </script>
+        {% endfor %}
+      </div>
+    </div>
+    </div>
+  </body>
+</html>
